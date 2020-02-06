@@ -84,7 +84,7 @@ func (gr *genReader) Read(p []byte) (int, error) {
 
 // tests
 
-func TestRelayGoldenPath(t *testing.T) {
+func TestHandlerGoldenPath(t *testing.T) {
 	handler := NewHandler(newSecretList(secret))
 
 	t.Run("returns a secret code", func(t *testing.T) {
@@ -139,7 +139,7 @@ func TestRelayGoldenPath(t *testing.T) {
 	})
 }
 
-func TestRelayLargeFile(t *testing.T) {
+func TestHandlerLargeFile(t *testing.T) {
 	const size = 1000 * 1000 * 1000 // 1 GB
 	var start, end runtime.MemStats
 	runtime.GC()
@@ -181,7 +181,7 @@ func TestRelayLargeFile(t *testing.T) {
 	})
 }
 
-func TestRelaySimultaneous(t *testing.T) {
+func TestHandlerSimultaneous(t *testing.T) {
 	secrets := []string{"a-a-a", "b-b-b", "c-c-c"}
 	handler := NewHandler(newSecretList(secrets...))
 
@@ -220,7 +220,7 @@ func TestRelaySimultaneous(t *testing.T) {
 	}
 }
 
-func TestRelayWrongSecret(t *testing.T) {
+func TestHandlerWrongSecret(t *testing.T) {
 	handler := NewHandler(newSecretList(secret))
 
 	{
@@ -261,7 +261,7 @@ func TestRelayWrongSecret(t *testing.T) {
 	})
 }
 
-func TestRelayWrongMethod(t *testing.T) {
+func TestHandlerWrongMethod(t *testing.T) {
 	handler := NewHandler(newSecretList(secret))
 
 	t.Run("GET to /send fails", func(t *testing.T) {
