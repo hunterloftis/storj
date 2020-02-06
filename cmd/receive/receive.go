@@ -21,20 +21,18 @@ func receive() error {
 	if len(os.Args) < 4 {
 		return errors.New("insufficient arguments")
 	}
-	args := os.Args[1:]
 
-	addr := args[0]
+	addr := os.Args[1]
 	client := relay.NewClient(addr, true)
+	secret := os.Args[2]
 
-	secret := args[1]
 	suggestedName, stream, err := client.Receive(secret)
 	if err != nil {
 		return fmt.Errorf("opening receive stream: %w", err)
 	}
 
-	// TODO: mkdirp if dir filename path doesn't exist
-	dir := args[2]
-	_, name := filepath.Split(suggestedName) // TODO: is this sufficiently secure?
+	dir := os.Args[3]
+	_, name := filepath.Split(suggestedName)
 	filename := filepath.Join(dir, name)
 	file, err := os.Create(filename)
 	if err != nil {

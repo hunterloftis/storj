@@ -19,16 +19,15 @@ func send() error {
 	if len(os.Args) < 3 {
 		return errors.New("insufficient arguments")
 	}
-	args := os.Args[1:]
 
-	filename := args[1]
+	filename := os.Args[2]
 	file, err := os.Open(filename)
 	if err != nil {
 		return fmt.Errorf("opening file %v: %w", filename, err)
 	}
 	defer file.Close()
 
-	addr := args[0]
+	addr := os.Args[1]
 	client := relay.NewClient(addr, true)
 
 	secret, wait, err := client.Send(filename, file)
