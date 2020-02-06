@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func TestSecretSanity(t *testing.T) {
+func TestSecretCollision(t *testing.T) {
 	const n = 1000
 	seen := make([]string, 0, n)
 
