@@ -94,9 +94,9 @@ func TestRelayGoldenPath(t *testing.T) {
 		w := httptest.NewRecorder()
 
 		go handler.ServeHTTP(w, request)
-
 		for w.Body.Len() == 0 {
 		}
+
 		resp := w.Result()
 
 		got, err := bufio.NewReader(resp.Body).ReadString('\n')
@@ -221,7 +221,33 @@ func TestRelaySimultaneous(t *testing.T) {
 }
 
 func TestRelayWrongSecret(t *testing.T) {
+	handler := NewHandler(newSecretList(secret))
 
+	{
+		file := strings.NewReader(contents)
+		request, _ := http.NewRequest(http.MethodPost, "/send", file)
+		request.Header.Set(filenameHeader, filename)
+		w := httptest.NewRecorder()
+
+		go handler.ServeHTTP(w, request)
+		for w.Body.Len() == 0 {
+		}
+	}
+
+	request, _ := http.NewRequest(http.MethodGet, "/receive", nil)
+	request.Header.Set(secretHeader, "wrong-secret")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, request)
+	resp := w.Result()
+	body, _ := ioutil.ReadAll(resp.Body)
+
+	got := fmt.Sprintf("%s", body)
+	want := ""
+
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
 }
 
 func TestRelayWrongMethod(t *testing.T) {
