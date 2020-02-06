@@ -119,12 +119,23 @@ func TestRelayGoldenPath(t *testing.T) {
 		resp := w.Result()
 		body, _ := ioutil.ReadAll(resp.Body)
 
-		got := fmt.Sprintf("%s", body)
-		want := contents
+		t.Run("contents match", func(t *testing.T) {
+			got := fmt.Sprintf("%s", body)
+			want := contents
 
-		if got != want {
-			t.Errorf("got %q, want %q", got, want)
-		}
+			if got != want {
+				t.Errorf("got %q, want %q", got, want)
+			}
+		})
+
+		t.Run("filenames match", func(t *testing.T) {
+			got := resp.Header.Get(filenameHeader)
+			want := filename
+
+			if got != want {
+				t.Errorf("got %q, want %q", got, want)
+			}
+		})
 	})
 }
 
@@ -139,7 +150,10 @@ func TestRelayLargeFile(t *testing.T) {
 		file := &genReader{size}
 		request, _ := http.NewRequest(http.MethodPost, "/send", file)
 		request.Header.Set(filenameHeader, filename)
-		go handler.ServeHTTP(httptest.NewRecorder(), request)
+		w := httptest.NewRecorder()
+		go handler.ServeHTTP(w, request)
+		for w.Body.Len() == 0 {
+		}
 	}
 
 	t.Run("transfers 1 GB of data", func(t *testing.T) {
@@ -168,14 +182,45 @@ func TestRelayLargeFile(t *testing.T) {
 }
 
 func TestRelaySimultaneous(t *testing.T) {
+	secrets := []string{"a-a-a", "b-b-b", "c-c-c"}
+	handler := NewHandler(newSecretList(secrets...))
 
+	for i := 0; i < len(secrets); i++ {
+		file := strings.NewReader(fmt.Sprintf("file contents %v", i))
+		request, _ := http.NewRequest(http.MethodPost, "/send", file)
+		request.Header.Set(filenameHeader, fmt.Sprintf("file-%v.txt", i))
+		w := httptest.NewRecorder()
+		go handler.ServeHTTP(w, request)
+		for w.Body.Len() == 0 {
+		}
+	}
+
+	for i := 0; i < len(secrets); i++ {
+		request, _ := http.NewRequest(http.MethodGet, "/receive", nil)
+		request.Header.Set(secretHeader, secrets[i])
+		w := httptest.NewRecorder()
+
+		handler.ServeHTTP(w, request)
+		resp := w.Result()
+		body, _ := ioutil.ReadAll(resp.Body)
+
+		got := fmt.Sprintf("%s", body)
+		want := fmt.Sprintf("file contents %v", i)
+
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+
+		got = resp.Header.Get(filenameHeader)
+		want = fmt.Sprintf("file-%v.txt", i)
+
+		if got != want {
+			t.Errorf("got filename %q, want %q", got, want)
+		}
+	}
 }
 
 func TestRelayWrongSecret(t *testing.T) {
-
-}
-
-func TestRelayNoFilename(t *testing.T) {
 
 }
 
