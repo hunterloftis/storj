@@ -27,7 +27,7 @@ func receive() error {
 	client := relay.NewClient(addr, true)
 
 	secret := args[1]
-	suggestedName, body, err := client.Receive(secret)
+	suggestedName, stream, err := client.Receive(secret)
 	if err != nil {
 		return fmt.Errorf("opening receive stream: %w", err)
 	}
@@ -42,7 +42,7 @@ func receive() error {
 	}
 	defer file.Close()
 
-	if _, err := io.Copy(file, body); err != nil {
+	if _, err := io.Copy(file, stream); err != nil {
 		return fmt.Errorf("streaming file: %w", err)
 	}
 	return nil

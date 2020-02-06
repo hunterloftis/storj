@@ -127,7 +127,7 @@ func (h *Handler) handleReceive() http.HandlerFunc {
 		}
 
 		w.Header().Add(filenameHeader, off.filename)
-		response.Flush()
+		response.Flush() // TODO: necessary?
 
 		off.receiver <- w // h.handleSend now writes to w
 		<-off.done        // wait until h.handleSend is complete

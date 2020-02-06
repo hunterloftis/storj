@@ -14,12 +14,6 @@ import (
 
 // test utilities
 
-const (
-	filename = "filename.txt"
-	contents = "file contents"
-	secret   = "some-secret-string"
-)
-
 type secretList struct {
 	strings []string
 	i       int
@@ -85,6 +79,10 @@ func (gr *genReader) Read(p []byte) (int, error) {
 // tests
 
 func TestHandlerGoldenPath(t *testing.T) {
+	const filename = "filename.txt"
+	const contents = "file contents"
+	const secret = "some-secret-string"
+
 	handler := NewHandler(newSecretList(secret))
 
 	t.Run("returns a secret code", func(t *testing.T) {
@@ -140,6 +138,9 @@ func TestHandlerGoldenPath(t *testing.T) {
 }
 
 func TestHandlerLargeFile(t *testing.T) {
+	const filename = "filename.txt"
+	const contents = "file contents"
+	const secret = "some-secret-string"
 	const size = 1000 * 1000 * 1000 // 1 GB
 	var start, end runtime.MemStats
 	runtime.GC()
@@ -221,6 +222,9 @@ func TestHandlerSimultaneous(t *testing.T) {
 }
 
 func TestHandlerWrongSecret(t *testing.T) {
+	const filename = "filename.txt"
+	const contents = "file contents"
+	const secret = "some-secret-string"
 	handler := NewHandler(newSecretList(secret))
 
 	{
@@ -262,6 +266,8 @@ func TestHandlerWrongSecret(t *testing.T) {
 }
 
 func TestHandlerWrongMethod(t *testing.T) {
+	const contents = "file contents"
+	const secret = "some-secret-string"
 	handler := NewHandler(newSecretList(secret))
 
 	t.Run("GET to /send fails", func(t *testing.T) {
