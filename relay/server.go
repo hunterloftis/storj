@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"strings"
 	"sync"
@@ -16,49 +15,54 @@ const (
 	secretHeader   = "secret"
 )
 
-type secret string
-
 type offer struct {
 	filename string
 	receiver chan http.ResponseWriter
 	done     chan struct{}
 }
 
-type Server struct {
-	http.Server
-	rng    *rand.Rand
-	router *http.ServeMux
-
-	sync.RWMutex
-	offers map[secret]offer
-}
-
-func NewServer(addr string, rng *rand.Rand) (*Server, error) {
-	certs, err := certificates()
+func NewServer(addr string, handler *Handler) (*http.Server, error) {
+	cert, err := tls.X509KeyPair(cert, certKey)
 	if err != nil {
 		return nil, fmt.Errorf("loading certs: %w", err)
 	}
 
-	s := &Server{
-		Server: http.Server{
-			Addr: addr,
-			TLSConfig: &tls.Config{
-				Certificates: certs,
-			},
+	s := &http.Server{
+		Addr: addr,
+		TLSConfig: &tls.Config{
+			Certificates: []tls.Certificate{cert},
 		},
-		rng:    rng,
-		router: http.NewServeMux(),
-		offers: make(map[secret]offer),
+		Handler: handler,
 	}
-	s.router.Handle("/send", s.handleSend())
-	s.router.Handle("/receive", s.handleReceive())
-	s.Handler = s.router
-
 	return s, nil
 }
 
+type Handler struct {
+	router  *http.ServeMux
+	secrets fmt.Stringer
+
+	sync.RWMutex
+	offers map[string]offer
+}
+
+func NewHandler(secrets fmt.Stringer) *Handler {
+	h := &Handler{
+		secrets: secrets,
+		router:  http.NewServeMux(),
+		offers:  make(map[string]offer),
+	}
+	h.router.Handle("/send", h.handleSend())
+	h.router.Handle("/receive", h.handleReceive())
+
+	return h
+}
+
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.router.ServeHTTP(w, r)
+}
+
 // TODO: timeout
-func (s *Server) handleSend() http.HandlerFunc {
+func (h *Handler) handleSend() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -73,7 +77,7 @@ func (s *Server) handleSend() http.HandlerFunc {
 		}
 
 		filename := r.Header.Get(filenameHeader)
-		off, sec, err := s.createOffer(filename)
+		off, sec, err := h.createOffer(filename)
 		if err != nil {
 			// TODO: logging
 			w.WriteHeader(http.StatusInternalServerError)
@@ -100,7 +104,7 @@ func (s *Server) handleSend() http.HandlerFunc {
 }
 
 // TODO: timeout
-func (s *Server) handleReceive() http.HandlerFunc {
+func (h *Handler) handleReceive() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -114,8 +118,8 @@ func (s *Server) handleReceive() http.HandlerFunc {
 			return
 		}
 
-		sec := secret(r.Header.Get(secretHeader))
-		off, err := s.findOffer(sec)
+		secret := r.Header.Get(secretHeader)
+		off, err := h.findOffer(secret)
 		if err != nil {
 			// TODO: logging
 			w.WriteHeader(http.StatusNotFound)
@@ -125,43 +129,36 @@ func (s *Server) handleReceive() http.HandlerFunc {
 		w.Header().Add(filenameHeader, off.filename)
 		response.Flush()
 
-		off.receiver <- w // s.handleSend now writes to w
-		<-off.done        // wait until s.handleSend is complete
+		off.receiver <- w // h.handleSend now writes to w
+		<-off.done        // wait until h.handleSend is complete
 	}
 }
 
-func (s *Server) createOffer(filename string) (offer, secret, error) {
-	s.Lock()
-	defer s.Unlock()
+func (h *Handler) createOffer(filename string) (off offer, secret string, err error) {
+	h.Lock()
+	defer h.Unlock()
 
-	var sec secret
-	for exists := true; exists; sec = s.nextSecret() {
-		_, exists = s.offers[sec]
+	for exists := true; exists; {
+		secret = h.secrets.String()
+		_, exists = h.offers[secret]
 	}
 
-	off := offer{
+	h.offers[secret] = offer{
 		receiver: make(chan http.ResponseWriter),
 		filename: fmt.Sprintf("%s", filename),
 		done:     make(chan struct{}),
 	}
-	s.offers[sec] = off
 
-	return off, sec, nil
+	return h.offers[secret], secret, nil
 }
 
-func (s *Server) findOffer(sec secret) (offer, error) {
-	s.Lock()
-	defer s.Unlock()
+func (h *Handler) findOffer(secret string) (offer, error) {
+	h.Lock()
+	defer h.Unlock()
 
-	off, ok := s.offers[sec]
+	off, ok := h.offers[secret]
 	if !ok {
 		return off, errors.New("no such offer or secret")
 	}
 	return off, nil
-}
-
-func (s *Server) nextSecret() secret {
-	n := len(words)
-	a, b, c := s.rng.Intn(n), s.rng.Intn(n), s.rng.Intn(n)
-	return secret(words[a] + "-" + words[b] + "-" + words[c])
 }

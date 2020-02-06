@@ -22,9 +22,11 @@ func start() error {
 		return errors.New("insufficient arguments")
 	}
 
-	addr := os.Args[1]
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	server, err := relay.NewServer(addr, rng)
+	secrets := relay.NewSecrets(rng)
+	handler := relay.NewHandler(secrets)
+	addr := os.Args[1]
+	server, err := relay.NewServer(addr, handler)
 	if err != nil {
 		return fmt.Errorf("creating server: %w", err)
 	}

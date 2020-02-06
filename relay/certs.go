@@ -1,10 +1,5 @@
 package relay
 
-import (
-	"crypto/tls"
-	"fmt"
-)
-
 var cert = []byte(`-----BEGIN CERTIFICATE-----
 MIIDeDCCAmACCQCDQ8baNG94FTANBgkqhkiG9w0BAQsFADB+MQswCQYDVQQGEwJV
 UzETMBEGA1UECAwKQ2FsaWZvcm5pYTEWMBQGA1UEBwwNTW91bnRhaW4gVmlldzEa
@@ -57,11 +52,3 @@ OOUHRRmXuP4St9J5N7x48w3xgMLBoOAmkfqNJsFutmt688Uy5XQbIH5l74EYJiTd
 ylPSdUw7NCRIWK47thKdCFE=
 -----END PRIVATE KEY-----
 `)
-
-func certificates() ([]tls.Certificate, error) {
-	cert, err := tls.X509KeyPair(cert, certKey)
-	if err != nil {
-		return nil, fmt.Errorf("loading certs: %w", err)
-	}
-	return []tls.Certificate{cert}, nil
-}
