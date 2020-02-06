@@ -242,14 +242,54 @@ func TestRelayWrongSecret(t *testing.T) {
 	resp := w.Result()
 	body, _ := ioutil.ReadAll(resp.Body)
 
-	got := fmt.Sprintf("%s", body)
-	want := ""
+	t.Run("returns a 404", func(t *testing.T) {
+		got := resp.StatusCode
+		want := http.StatusNotFound
 
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
+		if got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("serves no content", func(t *testing.T) {
+		got := fmt.Sprintf("%s", body)
+		want := ""
+
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
 }
 
 func TestRelayWrongMethod(t *testing.T) {
+	handler := NewHandler(newSecretList(secret))
 
+	t.Run("GET to /send fails", func(t *testing.T) {
+		file := strings.NewReader(contents)
+		request, _ := http.NewRequest(http.MethodGet, "/send", file)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, request)
+		resp := w.Result()
+
+		got := resp.StatusCode
+		want := http.StatusMethodNotAllowed
+
+		if got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("POST to /receive fails", func(t *testing.T) {
+		request, _ := http.NewRequest(http.MethodPost, "/receive", nil)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, request)
+		resp := w.Result()
+
+		got := resp.StatusCode
+		want := http.StatusMethodNotAllowed
+
+		if got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
 }
