@@ -49,3 +49,18 @@ a rate-limiting service to prevent brute-force attacks over the network.
 
 Although it wasn't in the spec, a future improvement to consider is timeouts for the Send and Receive routes.
 As-is, a bad (or mistaken) actor could hold open resources by making many concurrent connections.
+
+# Local development
+
+## Testing
+
+```
+$ go test ./...
+```
+
+## Building
+
+```
+$ make
+$ cd dist
+```
