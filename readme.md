@@ -1,6 +1,6 @@
 # Overview
 
-Local use based on the [Storj problem](problem.md):
+Based on the [Storj problem](problem.md):
 
 Terminal 1:
 ```
@@ -18,6 +18,10 @@ Terminal 3:
 $ ./receive localhost:9021 little-earth-music test2/
 $ diff test/olivia.jpg test2/olivia.jpg
 ```
+
+I thought this was a really interesting challenge so I hacked a version together after reading about it [on Reddit](https://www.reddit.com/r/golang/comments/eyphsm/golang_homework_interview_challenge_for_storj/).
+Given that they plan to [replace the now-public challenge](https://www.reddit.com/r/golang/comments/eyphsm/golang_homework_interview_challenge_for_storj/fgixfb3/), it doesn't seem like I'm spoiling anything.
+That said, Storj, please reach out if you'd rahter this not be on GitHub.
 
 # Design
 
