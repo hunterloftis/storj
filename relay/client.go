@@ -52,6 +52,9 @@ func (c *Client) Offer(filename string, file io.ReadCloser) (string, SendFn, err
 	secret = strings.TrimSpace(secret)
 
 	send := func() error {
+		// TODO: make this a request WithContext (req = req.WithContext(ctx))
+		// Then cancel the context whenever the receiver disconnects.
+		// Ditto in reverse, if that doesn't already happen from the ending of the stream...
 		req, _ := http.NewRequest(http.MethodPut, proto+c.addr+"/file/"+secret, file)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
