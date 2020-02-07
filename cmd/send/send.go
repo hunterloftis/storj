@@ -21,7 +21,9 @@ func send() error {
 		return errors.New("insufficient arguments")
 	}
 
+	addr := os.Args[1]
 	filename := os.Args[2]
+
 	_, name := filepath.Split(filename)
 	file, err := os.Open(filename)
 	if err != nil {
@@ -29,14 +31,12 @@ func send() error {
 	}
 	defer file.Close()
 
-	addr := os.Args[1]
-	client := relay.NewClient(addr, true)
-
-	secret, wait, err := client.Send(name, file)
+	client := relay.NewClient(addr)
+	secret, send, err := client.Offer(name, file)
 	if err != nil {
 		return fmt.Errorf("creating stream: %w", err)
 	}
-	fmt.Println(secret)
 
-	return wait()
+	fmt.Println(secret)
+	return send()
 }

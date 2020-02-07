@@ -1,9 +1,9 @@
 package integration
 
 import (
-	"fmt"
 	"io/ioutil"
 	"math/rand"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -12,34 +12,44 @@ import (
 )
 
 func TestIntegrationSimple(t *testing.T) {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	secrets := relay.NewSecrets(rng)
-	handler := relay.NewHandler(secrets, ioutil.Discard)
 	addr := "localhost:3000"
-
-	server, err := relay.NewServer(addr, handler)
-	if err != nil {
-		t.Errorf("creating server: %w", err)
-	}
+	filename := "file.txt"
+	contents := "file contents"
 
 	go func() {
-		if err := server.ListenAndServeTLS("", ""); err != nil {
+		rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+		secrets := relay.NewSecrets(rng)
+		handler := relay.NewHandler(secrets, ioutil.Discard)
+
+		if err := http.ListenAndServe(addr, handler); err != nil {
 			t.Errorf("starting server: %w", err)
 		}
 	}()
 
-	filename := "file.txt"
-	contents := "file contents"
-	file := ioutil.NopCloser(strings.NewReader(contents))
+	time.Sleep(100 * time.Millisecond)
+	offering := make(chan struct{})
+	var sharedSecret string
 
-	sender := relay.NewClient(addr, true)
-	secret, _, err := sender.Send(filename, file)
-	if err != nil {
-		t.Errorf("opening send stream: %w", err)
-	}
+	go func() {
+		file := ioutil.NopCloser(strings.NewReader(contents))
 
-	receiver := relay.NewClient(addr, true)
-	suggestedName, stream, err := receiver.Receive(secret)
+		sender := relay.NewClient(addr)
+		secret, send, err := sender.Offer(filename, file)
+		if err != nil {
+			t.Errorf("opening send stream: %w", err)
+		}
+
+		sharedSecret = secret
+		close(offering)
+		if err := send(); err != nil {
+			t.Errorf("send err: %w", err)
+		}
+	}()
+
+	<-offering
+
+	receiver := relay.NewClient(addr)
+	suggestedName, stream, err := receiver.Receive(sharedSecret)
 	if err != nil {
 		t.Errorf("receiving: %w", err)
 	}
@@ -59,7 +69,7 @@ func TestIntegrationSimple(t *testing.T) {
 	})
 
 	t.Run("receives the file", func(t *testing.T) {
-		got := fmt.Sprintf("%s", received)
+		got := string(received)
 		want := contents
 
 		if got != want {

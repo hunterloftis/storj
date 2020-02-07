@@ -2,7 +2,6 @@ package relay
 
 import (
 	"bytes"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -11,24 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-
-	"golang.org/x/net/http2"
 )
-
-// utils
-
-func newTestServer(handler http.Handler) (string, *httptest.Server) {
-	ts := httptest.NewUnstartedServer(handler)
-
-	ts.TLS = &tls.Config{
-		CipherSuites: []uint16{tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
-		NextProtos:   []string{http2.NextProtoTLS},
-	}
-	ts.StartTLS()
-
-	u, _ := url.Parse(ts.URL)
-	return u.Host, ts
-}
 
 // tests
 
@@ -37,39 +19,38 @@ func TestClientSend(t *testing.T) {
 	const filename = "file.txt"
 	const contents = "file contents"
 
-	var requested string
-	var suggestedFilename string
+	var request1 *http.Request
+	var request2 *http.Request
 
 	file := ioutil.NopCloser(strings.NewReader(contents))
 	sent := bytes.NewBuffer([]byte{})
-	blocker := make(chan struct{})
 
-	addr, _ := newTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requested = r.Method + " " + r.URL.Path
-		response, _ := w.(http.Flusher)
-		suggestedFilename = r.Header.Get(filenameHeader)
-		if _, err := io.Copy(w, strings.NewReader(secret+"\n")); err != nil {
-			t.Error("sending secret:", err)
-		}
-		response.Flush()
-
-		<-blocker
-
-		if _, err := io.Copy(sent, r.Body); err != nil {
-			t.Error("copying file:", err)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			request1 = r
+			if _, err := io.Copy(w, strings.NewReader(secret+"\n")); err != nil {
+				t.Error("sending secret:", err)
+			}
+		case http.MethodPut:
+			request2 = r
+			if _, err := io.Copy(sent, r.Body); err != nil {
+				t.Error("copying file:", err)
+			}
 		}
 	}))
 
-	client := NewClient(addr, true)
+	u, _ := url.Parse(server.URL)
+	client := NewClient(u.Host)
 
-	sec, wait, err := client.Send(filename, file)
+	sec, send, err := client.Offer(filename, file)
 	if err != nil {
-		t.Error("client.Send:", err)
+		t.Error("client.Offer:", err)
 	}
 
-	t.Run("posts to /send", func(t *testing.T) {
-		got := requested
-		want := "POST /send"
+	t.Run("POSTs to /file", func(t *testing.T) {
+		got := request1.Method + " " + request1.URL.Path
+		want := "POST /file"
 
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
@@ -77,7 +58,7 @@ func TestClientSend(t *testing.T) {
 	})
 
 	t.Run("suggests filename", func(t *testing.T) {
-		got := suggestedFilename
+		got := request1.Header.Get(filenameHeader)
 		want := filename
 
 		if got != want {
@@ -95,19 +76,29 @@ func TestClientSend(t *testing.T) {
 	})
 
 	t.Run("waits to stream", func(t *testing.T) {
-		got := fmt.Sprintf("%s", sent)
-		want := ""
+		got := sent.Len()
+		want := 0
+
+		if got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	if err := send(); err != nil {
+		t.Errorf("send error: %w", err)
+	}
+
+	t.Run("PUTs to /file/{secret}", func(t *testing.T) {
+		got := request2.Method + " " + request2.URL.Path
+		want := "PUT /file/" + secret
 
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
 	})
 
-	close(blocker)
-	wait()
-
 	t.Run("streams file", func(t *testing.T) {
-		got := fmt.Sprintf("%s", sent)
+		got := sent.String()
 		want := contents
 
 		if got != want {
@@ -125,32 +116,30 @@ func TestClientReceive(t *testing.T) {
 
 	var request *http.Request
 
-	addr, _ := newTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		request = r
 		w.Header().Add(filenameHeader, filename)
-		io.Copy(w, file)
+		if _, err := io.Copy(w, file); err != nil {
+			t.Errorf("copying file: %w", err)
+		}
 	}))
 
-	client := NewClient(addr, true)
+	u, _ := url.Parse(server.URL)
+	client := NewClient(u.Host)
 
 	suggestedName, stream, err := client.Receive(secret)
-	received, err := ioutil.ReadAll(stream)
 	if err != nil {
-		t.Error("reading stream:", err)
+		t.Errorf("receiving: %w", err)
 	}
 
-	t.Run("requests GET /receive", func(t *testing.T) {
+	received, err := ioutil.ReadAll(stream)
+	if err != nil {
+		t.Errorf("reading stream: %w", err)
+	}
+
+	t.Run("requests GET /file/{secret}", func(t *testing.T) {
 		got := request.Method + " " + request.URL.Path
-		want := "GET /receive"
-
-		if got != want {
-			t.Errorf("got %q, want %q", got, want)
-		}
-	})
-
-	t.Run("attaches secret to header", func(t *testing.T) {
-		got := request.Header.Get(secretHeader)
-		want := secret
+		want := "GET /file/" + secret
 
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)

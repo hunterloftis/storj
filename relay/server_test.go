@@ -1,7 +1,6 @@
 package relay
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -85,32 +84,32 @@ func TestHandlerGoldenPath(t *testing.T) {
 
 	handler := NewHandler(newSecretList(secret), ioutil.Discard)
 
-	t.Run("returns a secret code", func(t *testing.T) {
-		file := strings.NewReader(contents)
-		request, _ := http.NewRequest(http.MethodPost, "/send", file)
+	t.Run("POST returns a secret code", func(t *testing.T) {
+		request, _ := http.NewRequest(http.MethodPost, "/file", nil)
 		request.Header.Set(filenameHeader, filename)
 		w := httptest.NewRecorder()
 
-		go handler.ServeHTTP(w, request)
-		for w.Body.Len() == 0 {
-		}
-
+		handler.ServeHTTP(w, request)
 		resp := w.Result()
 
-		got, err := bufio.NewReader(resp.Body).ReadString('\n')
-		if err != nil {
-			t.Error("reading secret:", err)
-		}
+		got, _ := ioutil.ReadAll(resp.Body)
 		want := secret + "\n"
 
-		if got != want {
+		if string(got) != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
 	})
 
-	t.Run("receives a file", func(t *testing.T) {
-		request, _ := http.NewRequest(http.MethodGet, "/receive", nil)
-		request.Header.Set(secretHeader, secret)
+	go func() {
+		file := strings.NewReader(contents)
+		request, _ := http.NewRequest(http.MethodPut, "/file/"+secret, file)
+		w := httptest.NewRecorder()
+
+		handler.ServeHTTP(w, request)
+	}()
+
+	t.Run("GET receives a file", func(t *testing.T) {
+		request, _ := http.NewRequest(http.MethodGet, "/file/"+secret, nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, request)
@@ -118,7 +117,7 @@ func TestHandlerGoldenPath(t *testing.T) {
 		body, _ := ioutil.ReadAll(resp.Body)
 
 		t.Run("contents match", func(t *testing.T) {
-			got := fmt.Sprintf("%s", body)
+			got := string(body)
 			want := contents
 
 			if got != want {
@@ -147,19 +146,26 @@ func TestHandlerLargeFile(t *testing.T) {
 	runtime.ReadMemStats(&start)
 	handler := NewHandler(newSecretList(secret), ioutil.Discard)
 
-	{
-		file := &genReader{size}
-		request, _ := http.NewRequest(http.MethodPost, "/send", file)
-		request.Header.Set(filenameHeader, filename)
-		w := httptest.NewRecorder()
-		go handler.ServeHTTP(w, request)
-		for w.Body.Len() == 0 {
-		}
-	}
+	offered := make(chan struct{})
 
-	t.Run("transfers 1 GB of data", func(t *testing.T) {
-		request, _ := http.NewRequest(http.MethodGet, "/receive", nil)
-		request.Header.Set(secretHeader, secret)
+	go func() {
+		request, _ := http.NewRequest(http.MethodPost, "/file", nil)
+		request.Header.Set(filenameHeader, filename)
+		w := newCountWriter()
+		handler.ServeHTTP(w, request)
+
+		close(offered)
+
+		file := &genReader{size}
+		req2, _ := http.NewRequest(http.MethodPut, "/file/"+secret, file)
+		w2 := newCountWriter()
+		handler.ServeHTTP(w2, req2)
+	}()
+
+	<-offered
+
+	t.Run("receives 1 GB of data", func(t *testing.T) {
+		request, _ := http.NewRequest(http.MethodGet, "/file/"+secret, nil)
 		writer := newCountWriter()
 		handler.ServeHTTP(writer, request)
 
@@ -167,7 +173,7 @@ func TestHandlerLargeFile(t *testing.T) {
 		want := size
 
 		if got != want {
-			t.Errorf("sent %v bytes, want %v", got, want)
+			t.Errorf("received %v bytes, want %v", got, want)
 		}
 	})
 
@@ -187,18 +193,19 @@ func TestHandlerSimultaneous(t *testing.T) {
 	handler := NewHandler(newSecretList(secrets...), ioutil.Discard)
 
 	for i := 0; i < len(secrets); i++ {
-		file := strings.NewReader(fmt.Sprintf("file contents %v", i))
-		request, _ := http.NewRequest(http.MethodPost, "/send", file)
+		request, _ := http.NewRequest(http.MethodPost, "/file", nil)
 		request.Header.Set(filenameHeader, fmt.Sprintf("file-%v.txt", i))
 		w := httptest.NewRecorder()
-		go handler.ServeHTTP(w, request)
-		for w.Body.Len() == 0 {
-		}
+		handler.ServeHTTP(w, request)
+
+		file := strings.NewReader(fmt.Sprintf("file contents %v", i))
+		req2, _ := http.NewRequest(http.MethodPut, "/file/"+secrets[i], file)
+		w2 := httptest.NewRecorder()
+		go handler.ServeHTTP(w2, req2)
 	}
 
 	for i := 0; i < len(secrets); i++ {
-		request, _ := http.NewRequest(http.MethodGet, "/receive", nil)
-		request.Header.Set(secretHeader, secrets[i])
+		request, _ := http.NewRequest(http.MethodGet, "/file/"+secrets[i], nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, request)
@@ -227,19 +234,25 @@ func TestHandlerWrongSecret(t *testing.T) {
 	const secret = "some-secret-string"
 	handler := NewHandler(newSecretList(secret), ioutil.Discard)
 
-	{
-		file := strings.NewReader(contents)
-		request, _ := http.NewRequest(http.MethodPost, "/send", file)
+	offered := make(chan struct{})
+
+	go func() {
+		request, _ := http.NewRequest(http.MethodPost, "/file", nil)
 		request.Header.Set(filenameHeader, filename)
 		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, request)
 
-		go handler.ServeHTTP(w, request)
-		for w.Body.Len() == 0 {
-		}
-	}
+		close(offered)
 
-	request, _ := http.NewRequest(http.MethodGet, "/receive", nil)
-	request.Header.Set(secretHeader, "wrong-secret")
+		file := strings.NewReader(contents)
+		req2, _ := http.NewRequest(http.MethodPut, "/file/"+secret, file)
+		w2 := httptest.NewRecorder()
+		handler.ServeHTTP(w2, req2)
+	}()
+
+	<-offered
+
+	request, _ := http.NewRequest(http.MethodGet, "/file/wrong-secret", nil)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, request)
@@ -261,41 +274,6 @@ func TestHandlerWrongSecret(t *testing.T) {
 
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
-		}
-	})
-}
-
-func TestHandlerWrongMethod(t *testing.T) {
-	const contents = "file contents"
-	const secret = "some-secret-string"
-	handler := NewHandler(newSecretList(secret), ioutil.Discard)
-
-	t.Run("GET to /send fails", func(t *testing.T) {
-		file := strings.NewReader(contents)
-		request, _ := http.NewRequest(http.MethodGet, "/send", file)
-		w := httptest.NewRecorder()
-		handler.ServeHTTP(w, request)
-		resp := w.Result()
-
-		got := resp.StatusCode
-		want := http.StatusMethodNotAllowed
-
-		if got != want {
-			t.Errorf("got %v, want %v", got, want)
-		}
-	})
-
-	t.Run("POST to /receive fails", func(t *testing.T) {
-		request, _ := http.NewRequest(http.MethodPost, "/receive", nil)
-		w := httptest.NewRecorder()
-		handler.ServeHTTP(w, request)
-		resp := w.Result()
-
-		got := resp.StatusCode
-		want := http.StatusMethodNotAllowed
-
-		if got != want {
-			t.Errorf("got %v, want %v", got, want)
 		}
 	})
 }

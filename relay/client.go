@@ -2,109 +2,78 @@ package relay
 
 import (
 	"bufio"
-	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"strings"
-
-	"golang.org/x/net/http2"
 )
 
 const (
-	proto = "https://"
+	proto = "http://"
 )
 
-// WaitFn can be used to block until a receiver has completely downloaded a sent file.
-type WaitFn func() error
+// SendFn can be used to block until a receiver has completely downloaded a sent file.
+type SendFn func() error
 
 // Client can send to or receive from a relay server.
 type Client struct {
-	addr       string
-	httpClient *http.Client
+	addr string
 }
 
 // NewClient creates a new Client that will communicate with the server at addr.
 // By default, Clients use TLS; pass insecure in order to skip certificate verification.
-func NewClient(addr string, insecure bool) *Client {
-	caCertPool := x509.NewCertPool()
-	caCertPool.AppendCertsFromPEM(cert)
-
-	client := &http.Client{
-		Transport: &http2.Transport{
-			TLSClientConfig: &tls.Config{
-				RootCAs:            caCertPool,
-				InsecureSkipVerify: insecure,
-			},
-		},
-	}
-
+func NewClient(addr string) *Client {
 	return &Client{
-		addr:       addr,
-		httpClient: client,
+		addr: addr,
 	}
 }
 
-// Send sends a file, with a proposed filename, to a recipient via the relay server.
-// It returns imediately with the server-provided secret string and a wait function.
-func (c *Client) Send(filename string, file io.ReadCloser) (string, WaitFn, error) {
-	req, err := http.NewRequest(http.MethodPost, proto+c.addr+"/send", file)
-	if err != nil {
-		return "", nil, fmt.Errorf("building /send request: %w", err)
-	}
-
+// Offer offers a file, with a proposed filename, to a recipient via the relay server.
+// It returns imediately with the server-provided secret string and a send function to transmit the file's contents.
+func (c *Client) Offer(filename string, file io.ReadCloser) (string, SendFn, error) {
+	req, _ := http.NewRequest(http.MethodPost, proto+c.addr+"/file", nil)
 	req.Header.Set(filenameHeader, filename)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", nil, fmt.Errorf("posting to /send: %w", err)
+		return "", nil, fmt.Errorf("posting to offer: %w", err)
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return "", nil, fmt.Errorf("bad status code on /send: %v", resp.StatusCode)
+		return "", nil, fmt.Errorf("bad status code on offer: %v", resp.StatusCode)
 	}
 
-	secret, err := bufio.NewReader(resp.Body).ReadString('\n')
+	limited := io.LimitReader(resp.Body, 100)
+	secret, err := bufio.NewReader(limited).ReadString('\n')
 	if err != nil {
-		return "", nil, fmt.Errorf("reading secret from /offer: %w", err)
+		return "", nil, fmt.Errorf("reading secret from offer: %w", err)
 	}
+	secret = strings.TrimSpace(secret)
 
-	// TODO: monitoring shows that the receiver is sending about as many packets as it's receiving
-	// that's a bit nuts; perhaps this loop reading all the Body is doing something with the network,
-	// checking for ... I don't know. Just a guess.
-	// A cleaner way would be to wrap something around `file` that monitors
-	// how far it's been read.
-	wait := func() error {
-		defer resp.Body.Close()
-		if _, err := ioutil.ReadAll(resp.Body); err != nil {
-			return fmt.Errorf("waiting for body to close: %w", err)
+	send := func() error {
+		req, _ := http.NewRequest(http.MethodPut, proto+c.addr+"/file/"+secret, file)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return err
 		}
-		return nil
+		return resp.Body.Close()
 	}
 
-	return strings.TrimSpace(secret), wait, nil
+	return secret, send, nil
 }
 
 // Receive receives a file stored with the given secret.
 // It returns immediately with a proposed filename and a ReadCloser that reads the file contents.
-func (c *Client) Receive(secret string) (filename string, body io.ReadCloser, err error) {
-	req, err := http.NewRequest(http.MethodGet, proto+c.addr+"/receive", nil)
+func (c *Client) Receive(secret string) (filename string, stream io.ReadCloser, err error) {
+	endpoint := proto + c.addr + "/file/" + secret
+	resp, err := http.DefaultClient.Get(endpoint)
 	if err != nil {
-		return "", nil, fmt.Errorf("building /receive request: %w", err)
-	}
-
-	req.Header.Set(secretHeader, secret)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return "", nil, fmt.Errorf("posting to /receive: %w", err)
+		return "", nil, fmt.Errorf("receiving: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return "", nil, fmt.Errorf("bad status code on /receive: %v", resp.StatusCode)
+		return "", nil, fmt.Errorf("bad status code receiving: %v", resp.StatusCode)
 	}
 
-	filename = resp.Header.Get(filenameHeader)
-	return filename, resp.Body, nil
+	return resp.Header.Get(filenameHeader), resp.Body, nil
 }

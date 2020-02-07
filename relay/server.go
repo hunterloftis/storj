@@ -1,42 +1,26 @@
 package relay
 
 import (
-	"crypto/tls"
-	"errors"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
 	filenameHeader = "suggested-filename"
-	secretHeader   = "secret"
+	offerTimeout   = 10 * time.Minute
 )
 
 type offer struct {
 	filename string
+	address  string
 	receiver chan http.ResponseWriter
-	done     chan struct{}
-}
-
-// NewServer returns a new *http.Server ready to listen at the given address, with the given handler.
-// The returned server is pre-configured to use built-in, hardcoded certs.
-func NewServer(addr string, handler *Handler) (*http.Server, error) {
-	cert, err := tls.X509KeyPair(cert, certKey)
-	if err != nil {
-		return nil, fmt.Errorf("loading certs: %w", err)
-	}
-
-	s := &http.Server{
-		Addr: addr,
-		TLSConfig: &tls.Config{
-			Certificates: []tls.Certificate{cert},
-		},
-		Handler: handler,
-	}
-	return s, nil
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
 // Handler is the http request handler that relays messages between clients on a Server.
@@ -53,12 +37,13 @@ type Handler struct {
 func NewHandler(secrets fmt.Stringer, logger io.Writer) *Handler {
 	h := &Handler{
 		secrets: secrets,
-		router:  http.NewServeMux(),
 		offers:  make(map[string]offer),
+		router:  http.NewServeMux(),
 		logger:  logger,
 	}
-	h.router.Handle("/send", h.handleSend())
-	h.router.Handle("/receive", h.handleReceive())
+
+	h.router.Handle("/file", h.handleNew())
+	h.router.Handle("/file/", h.handleExisting())
 
 	return h
 }
@@ -68,62 +53,38 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.router.ServeHTTP(w, r)
 }
 
-func (h *Handler) handleSend() http.HandlerFunc {
+func (h *Handler) handleNew() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-
-		response, ok := w.(http.Flusher)
-		if !ok {
-			fmt.Fprintln(h.logger, "handleSend: ResponseWriter is not a flusher")
-			w.WriteHeader(http.StatusInternalServerError)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 
 		filename := r.Header.Get(filenameHeader)
-		off, sec, err := h.createOffer(filename)
+		secret, err := h.createOffer(filename, r.RemoteAddr)
 		if err != nil {
 			fmt.Fprintln(h.logger, fmt.Errorf("creating offer: %w", err))
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
-		if _, err := io.Copy(w, strings.NewReader(string(sec)+"\n")); err != nil {
+		if _, err := fmt.Fprintln(w, secret); err != nil {
 			fmt.Fprintln(h.logger, fmt.Errorf("sending secret: %w", err))
 			return
 		}
-		response.Flush()
-
-		// wait for a matching receiver to connect
-		receiveWriter := <-off.receiver
-
-		if _, err := io.Copy(receiveWriter, r.Body); err != nil {
-			fmt.Fprintln(h.logger, fmt.Errorf("sending file: %w", err))
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		close(off.done) // indicate to h.handleReceive that the file has been transferred
 	}
 }
 
-func (h *Handler) handleReceive() http.HandlerFunc {
+func (h *Handler) handleExisting() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			w.WriteHeader(http.StatusMethodNotAllowed)
+
+		split := strings.Split(r.URL.Path[1:], "/")
+		if len(split) < 2 {
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 
-		response, ok := w.(http.Flusher)
-		if !ok {
-			fmt.Fprintln(h.logger, "handleReceive: ResponseWrite is not a flusher")
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		secret := r.Header.Get(secretHeader)
+		secret := split[1]
 		off, err := h.findOffer(secret)
 		if err != nil {
 			fmt.Fprintln(h.logger, fmt.Errorf("finding offer: %w", err))
@@ -131,30 +92,78 @@ func (h *Handler) handleReceive() http.HandlerFunc {
 			return
 		}
 
-		w.Header().Add(filenameHeader, off.filename)
-		response.Flush()
-
-		off.receiver <- w // h.handleSend now writes to w
-		<-off.done        // wait until h.handleSend is complete
+		switch r.Method {
+		case http.MethodPut:
+			h.handleSend(w, r, off)
+		case http.MethodGet:
+			h.handleReceive(w, r, off)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
 	}
 }
 
-func (h *Handler) createOffer(filename string) (off offer, secret string, err error) {
+func (h *Handler) handleSend(w http.ResponseWriter, r *http.Request, off offer) {
+	if off.address != r.RemoteAddr {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	fmt.Println("waiting for a receiver")
+
+	// wait for a receiver to connect
+	select {
+	case receiveWriter := <-off.receiver:
+		defer off.cancel()
+		if _, err := io.Copy(receiveWriter, r.Body); err != nil {
+			fmt.Fprintln(h.logger, fmt.Errorf("sending file: %w", err))
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+	case <-off.ctx.Done():
+		w.WriteHeader(http.StatusRequestTimeout)
+		return
+	}
+}
+
+func (h *Handler) handleReceive(w http.ResponseWriter, r *http.Request, off offer) {
+	w.Header().Add(filenameHeader, off.filename)
+	off.receiver <- w
+	<-off.ctx.Done() // wait until h.handleSend is complete
+}
+
+func (h *Handler) createOffer(filename, address string) (secret string, err error) {
 	h.Lock()
 	defer h.Unlock()
 
+	ctx, cancel := context.WithTimeout(context.Background(), offerTimeout)
+
+	off := offer{
+		filename: filename,
+		address:  address,
+		receiver: make(chan http.ResponseWriter),
+		ctx:      ctx,
+		cancel:   cancel,
+	}
+
+	// ensure secret is unique
 	for exists := true; exists; {
 		secret = h.secrets.String()
 		_, exists = h.offers[secret]
 	}
 
-	h.offers[secret] = offer{
-		receiver: make(chan http.ResponseWriter),
-		filename: fmt.Sprintf("%s", filename),
-		done:     make(chan struct{}),
-	}
+	h.offers[secret] = off
 
-	return h.offers[secret], secret, nil
+	// destroy the offer once it's completed
+	go func() {
+		<-off.ctx.Done()
+		h.Lock()
+		defer h.Unlock()
+		delete(h.offers, secret)
+	}()
+
+	return secret, nil
 }
 
 func (h *Handler) findOffer(secret string) (offer, error) {
@@ -163,7 +172,8 @@ func (h *Handler) findOffer(secret string) (offer, error) {
 
 	off, ok := h.offers[secret]
 	if !ok {
-		return off, errors.New("no such offer or secret")
+		return offer{}, fmt.Errorf("no such secret: %v", secret)
 	}
+
 	return off, nil
 }

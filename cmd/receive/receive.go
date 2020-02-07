@@ -23,15 +23,15 @@ func receive() error {
 	}
 
 	addr := os.Args[1]
-	client := relay.NewClient(addr, true)
 	secret := os.Args[2]
+	dir := os.Args[3]
 
+	client := relay.NewClient(addr)
 	suggestedName, stream, err := client.Receive(secret)
 	if err != nil {
 		return fmt.Errorf("opening receive stream: %w", err)
 	}
 
-	dir := os.Args[3]
 	_, name := filepath.Split(suggestedName)
 	filename := filepath.Join(dir, name)
 	file, err := os.Create(filename)

@@ -2,9 +2,9 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"math/rand"
+	"net/http"
 	"os"
 	"time"
 
@@ -22,14 +22,11 @@ func start() error {
 		return errors.New("insufficient arguments")
 	}
 
+	addr := os.Args[1]
+
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	secrets := relay.NewSecrets(rng)
 	handler := relay.NewHandler(secrets, os.Stdout)
-	addr := os.Args[1]
-	server, err := relay.NewServer(addr, handler)
-	if err != nil {
-		return fmt.Errorf("creating server: %w", err)
-	}
 
-	return server.ListenAndServeTLS("", "")
+	return http.ListenAndServe(addr, handler)
 }
