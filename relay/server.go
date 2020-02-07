@@ -109,8 +109,6 @@ func (h *Handler) handleSend(w http.ResponseWriter, r *http.Request, off offer) 
 		return
 	}
 
-	fmt.Println("waiting for a receiver")
-
 	// wait for a receiver to connect
 	select {
 	case receiveWriter := <-off.receiver:
