@@ -1,10 +1,17 @@
 package relay
 
 import (
+	"fmt"
 	"math/rand"
 	"testing"
 	"time"
 )
+
+func ExampleNewSecrets() {
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	secrets := NewSecrets(rng)
+	fmt.Println(secrets.String())
+}
 
 func TestSecretCollision(t *testing.T) {
 	const n = 1000

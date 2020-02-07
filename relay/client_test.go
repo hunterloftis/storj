@@ -12,8 +12,6 @@ import (
 	"testing"
 )
 
-// tests
-
 func TestClientSend(t *testing.T) {
 	const secret = "some-secret-string"
 	const filename = "file.txt"

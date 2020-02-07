@@ -9,7 +9,7 @@ type Secrets struct {
 
 // NewSecrets returns a new secret generator based on the provided random-number generator.
 //
-// If rng is deterministic, the secret strings will be as well, so be sure to
+// If `rng` is deterministic, the secret strings will be as well, so be sure to
 // seed your generator with something pseudo-random like the current time in order to
 // generate unique secrets.
 func NewSecrets(rng *rand.Rand) Secrets {

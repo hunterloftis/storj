@@ -31,6 +31,10 @@ func NewClient(addr string) *Client {
 //
 // It does not block on sending the file, but instead returns the file's secret immediately
 // along with a blocking function to send the file's contents.
+//
+//	secret, send, _ := client.Offer(filename, file)
+// 	fmt.Println(secret)	// immediately show the secret
+//	_ = send()					// wait for the file to be sent
 func (c *Client) Offer(filename string, file io.ReadCloser) (secret string, send SendFn, err error) {
 	req, _ := http.NewRequest(http.MethodPost, proto+c.addr+"/file", nil)
 	req.Header.Set(filenameHeader, filename)
@@ -70,6 +74,7 @@ func (c *Client) Offer(filename string, file io.ReadCloser) (secret string, send
 // Receive receives a file stored with the given secret.
 //
 // It returns immediately with a proposed filename and a stream from which to read the file contents.
+// The filename has been suggested by the sender and should not be trusted without validation.
 func (c *Client) Receive(secret string) (filename string, stream io.ReadCloser, err error) {
 	endpoint := proto + c.addr + "/file/" + secret
 	resp, err := http.DefaultClient.Get(endpoint)

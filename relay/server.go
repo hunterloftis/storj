@@ -23,7 +23,7 @@ type offer struct {
 	cancel   context.CancelFunc
 }
 
-// Handler is the HTTP request handler that relays messages between clients on a Server.
+// Handler is the HTTP request handler that relays messages between clients.
 type Handler struct {
 	router  *http.ServeMux
 	secrets fmt.Stringer
@@ -35,7 +35,7 @@ type Handler struct {
 
 // NewHandler returns a new Handler.
 //
-// It generates secret strings via the provided Stringer and logs to the provided Writer.
+// It generates secret strings via the provided Stringer and logs events to the provided Writer.
 func NewHandler(secrets fmt.Stringer, logger io.Writer) *Handler {
 	h := &Handler{
 		secrets: secrets,
