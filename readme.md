@@ -60,6 +60,7 @@ As-is, a bad (or mistaken) actor could hold open resources by making many concur
 
 ```
 $ go test ./...
+$ go test -race ./...
 ```
 
 ## Building
