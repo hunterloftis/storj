@@ -83,7 +83,7 @@ func TestHandlerGoldenPath(t *testing.T) {
 	const contents = "file contents"
 	const secret = "some-secret-string"
 
-	handler := NewHandler(newSecretList(secret))
+	handler := NewHandler(newSecretList(secret), ioutil.Discard)
 
 	t.Run("returns a secret code", func(t *testing.T) {
 		file := strings.NewReader(contents)
@@ -145,7 +145,7 @@ func TestHandlerLargeFile(t *testing.T) {
 	var start, end runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&start)
-	handler := NewHandler(newSecretList(secret))
+	handler := NewHandler(newSecretList(secret), ioutil.Discard)
 
 	{
 		file := &genReader{size}
@@ -184,7 +184,7 @@ func TestHandlerLargeFile(t *testing.T) {
 
 func TestHandlerSimultaneous(t *testing.T) {
 	secrets := []string{"a-a-a", "b-b-b", "c-c-c"}
-	handler := NewHandler(newSecretList(secrets...))
+	handler := NewHandler(newSecretList(secrets...), ioutil.Discard)
 
 	for i := 0; i < len(secrets); i++ {
 		file := strings.NewReader(fmt.Sprintf("file contents %v", i))
@@ -225,7 +225,7 @@ func TestHandlerWrongSecret(t *testing.T) {
 	const filename = "filename.txt"
 	const contents = "file contents"
 	const secret = "some-secret-string"
-	handler := NewHandler(newSecretList(secret))
+	handler := NewHandler(newSecretList(secret), ioutil.Discard)
 
 	{
 		file := strings.NewReader(contents)
@@ -268,7 +268,7 @@ func TestHandlerWrongSecret(t *testing.T) {
 func TestHandlerWrongMethod(t *testing.T) {
 	const contents = "file contents"
 	const secret = "some-secret-string"
-	handler := NewHandler(newSecretList(secret))
+	handler := NewHandler(newSecretList(secret), ioutil.Discard)
 
 	t.Run("GET to /send fails", func(t *testing.T) {
 		file := strings.NewReader(contents)

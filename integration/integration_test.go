@@ -14,7 +14,7 @@ import (
 func TestIntegrationSimple(t *testing.T) {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	secrets := relay.NewSecrets(rng)
-	handler := relay.NewHandler(secrets)
+	handler := relay.NewHandler(secrets, ioutil.Discard)
 	addr := "localhost:3000"
 
 	server, err := relay.NewServer(addr, handler)

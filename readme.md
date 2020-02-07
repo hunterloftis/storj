@@ -47,4 +47,5 @@ strings, which seems reasonable for this situation.
 To provide additional security, the relay server could either implement, or be placed behind,
 a rate-limiting service to prevent brute-force attacks over the network.
 
-
+Although it wasn't in the spec, a future improvement to consider is timeouts for the Send and Receive routes.
+As-is, a bad (or mistaken) actor could hold open resources by making many concurrent connections.

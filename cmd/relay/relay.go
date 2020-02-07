@@ -24,7 +24,7 @@ func start() error {
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	secrets := relay.NewSecrets(rng)
-	handler := relay.NewHandler(secrets)
+	handler := relay.NewHandler(secrets, os.Stdout)
 	addr := os.Args[1]
 	server, err := relay.NewServer(addr, handler)
 	if err != nil {

@@ -17,13 +17,17 @@ const (
 	proto = "https://"
 )
 
-type waitFn func() error
+// WaitFn can be used to block until a receiver has completely downloaded a sent file.
+type WaitFn func() error
 
+// Client can send to or receive from a relay server.
 type Client struct {
 	addr       string
 	httpClient *http.Client
 }
 
+// NewClient creates a new Client that will communicate with the server at addr.
+// By default, Clients use TLS; pass insecure in order to skip certificate verification.
 func NewClient(addr string, insecure bool) *Client {
 	caCertPool := x509.NewCertPool()
 	caCertPool.AppendCertsFromPEM(cert)
@@ -43,7 +47,9 @@ func NewClient(addr string, insecure bool) *Client {
 	}
 }
 
-func (c *Client) Send(filename string, file io.ReadCloser) (string, waitFn, error) {
+// Send sends a file, with a proposed filename, to a recipient via the relay server.
+// It returns imediately with the server-provided secret string and a wait function.
+func (c *Client) Send(filename string, file io.ReadCloser) (string, WaitFn, error) {
 	req, err := http.NewRequest(http.MethodPost, proto+c.addr+"/send", file)
 	if err != nil {
 		return "", nil, fmt.Errorf("building /send request: %w", err)
@@ -76,13 +82,15 @@ func (c *Client) Send(filename string, file io.ReadCloser) (string, waitFn, erro
 	return strings.TrimSpace(sec), wait, nil
 }
 
-func (c *Client) Receive(sec string) (filename string, body io.ReadCloser, err error) {
+// Receive receives a file stored with the given secret.
+// It returns immediately with a proposed filename and a ReadCloser that reads the file contents.
+func (c *Client) Receive(secret string) (filename string, body io.ReadCloser, err error) {
 	req, err := http.NewRequest(http.MethodGet, proto+c.addr+"/receive", nil)
 	if err != nil {
 		return "", nil, fmt.Errorf("building /receive request: %w", err)
 	}
 
-	req.Header.Set(secretHeader, sec)
+	req.Header.Set(secretHeader, secret)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

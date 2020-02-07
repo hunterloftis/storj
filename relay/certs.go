@@ -1,5 +1,8 @@
 package relay
 
+// These certs are not secure.
+// They're generated on localhost just for the purposes of prototyping this service.
+
 var cert = []byte(`-----BEGIN CERTIFICATE-----
 MIIDeDCCAmACCQCDQ8baNG94FTANBgkqhkiG9w0BAQsFADB+MQswCQYDVQQGEwJV
 UzETMBEGA1UECAwKQ2FsaWZvcm5pYTEWMBQGA1UEBwwNTW91bnRhaW4gVmlldzEa
