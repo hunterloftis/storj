@@ -12,7 +12,7 @@ const (
 	proto = "http://"
 )
 
-// SendFn can be used to block until a receiver has completely downloaded a sent file.
+// SendFn is a function that blocks until a file being sent has been completely downloaded.
 type SendFn func() error
 
 // Client can send to or receive from a relay server.
@@ -20,8 +20,7 @@ type Client struct {
 	addr string
 }
 
-// NewClient creates a new Client that will communicate with the server at addr.
-// By default, Clients use TLS; pass insecure in order to skip certificate verification.
+// NewClient creates a new Client that will communicate with the server at the specified address.
 func NewClient(addr string) *Client {
 	return &Client{
 		addr: addr,
@@ -29,8 +28,10 @@ func NewClient(addr string) *Client {
 }
 
 // Offer offers a file, with a proposed filename, to a recipient via the relay server.
-// It returns imediately with the server-provided secret string and a send function to transmit the file's contents.
-func (c *Client) Offer(filename string, file io.ReadCloser) (string, SendFn, error) {
+//
+// It does not block on sending the file, but instead returns the file's secret immediately
+// along with a blocking function to send the file's contents.
+func (c *Client) Offer(filename string, file io.ReadCloser) (secret string, send SendFn, err error) {
 	req, _ := http.NewRequest(http.MethodPost, proto+c.addr+"/file", nil)
 	req.Header.Set(filenameHeader, filename)
 
@@ -45,13 +46,13 @@ func (c *Client) Offer(filename string, file io.ReadCloser) (string, SendFn, err
 	}
 
 	limited := io.LimitReader(resp.Body, 100)
-	secret, err := bufio.NewReader(limited).ReadString('\n')
+	secret, err = bufio.NewReader(limited).ReadString('\n')
 	if err != nil {
 		return "", nil, fmt.Errorf("reading secret from offer: %w", err)
 	}
 	secret = strings.TrimSpace(secret)
 
-	send := func() error {
+	send = func() error {
 		// TODO: make this a request WithContext (req = req.WithContext(ctx))
 		// Then cancel the context whenever the receiver disconnects.
 		// Ditto in reverse, if that doesn't already happen from the ending of the stream...
@@ -67,7 +68,8 @@ func (c *Client) Offer(filename string, file io.ReadCloser) (string, SendFn, err
 }
 
 // Receive receives a file stored with the given secret.
-// It returns immediately with a proposed filename and a ReadCloser that reads the file contents.
+//
+// It returns immediately with a proposed filename and a stream from which to read the file contents.
 func (c *Client) Receive(secret string) (filename string, stream io.ReadCloser, err error) {
 	endpoint := proto + c.addr + "/file/" + secret
 	resp, err := http.DefaultClient.Get(endpoint)
