@@ -66,11 +66,16 @@ func (c *Client) Send(filename string, file io.ReadCloser) (string, WaitFn, erro
 		return "", nil, fmt.Errorf("bad status code on /send: %v", resp.StatusCode)
 	}
 
-	sec, err := bufio.NewReader(resp.Body).ReadString('\n')
+	secret, err := bufio.NewReader(resp.Body).ReadString('\n')
 	if err != nil {
 		return "", nil, fmt.Errorf("reading secret from /offer: %w", err)
 	}
 
+	// TODO: monitoring shows that the receiver is sending about as many packets as it's receiving
+	// that's a bit nuts; perhaps this loop reading all the Body is doing something with the network,
+	// checking for ... I don't know. Just a guess.
+	// A cleaner way would be to wrap something around `file` that monitors
+	// how far it's been read.
 	wait := func() error {
 		defer resp.Body.Close()
 		if _, err := ioutil.ReadAll(resp.Body); err != nil {
@@ -79,7 +84,7 @@ func (c *Client) Send(filename string, file io.ReadCloser) (string, WaitFn, erro
 		return nil
 	}
 
-	return strings.TrimSpace(sec), wait, nil
+	return strings.TrimSpace(secret), wait, nil
 }
 
 // Receive receives a file stored with the given secret.
