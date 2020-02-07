@@ -33,6 +33,8 @@ An HTTP server at the relay host:
 
 The recommended filename is suggested via HTTP headers.
 
+Read the [docs on go.dev](https://pkg.go.dev/github.com/hunterloftis/storj/relay?tab=doc).
+
 ## Considerations
 
 A solution could be built with just TCP, rather than on top of HTTP.
