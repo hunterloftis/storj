@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/hunterloftis/storj/relay"
 )
@@ -21,6 +22,7 @@ func send() error {
 	}
 
 	filename := os.Args[2]
+	_, name := filepath.Split(filename)
 	file, err := os.Open(filename)
 	if err != nil {
 		return fmt.Errorf("opening file %v: %w", filename, err)
@@ -30,7 +32,7 @@ func send() error {
 	addr := os.Args[1]
 	client := relay.NewClient(addr, true)
 
-	secret, wait, err := client.Send(filename, file)
+	secret, wait, err := client.Send(name, file)
 	if err != nil {
 		return fmt.Errorf("creating stream: %w", err)
 	}
